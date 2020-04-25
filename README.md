@@ -3,6 +3,8 @@ Yandex Music Stalker
 
 Provides notification functionality for the Yandex music [shared playlists](https://yandex.ru/support/music/playlists/shared.html) using [unofficial API](https://github.com/MarshalX/yandex-music-api).
 
+![Screenshot of the app on Windows](screenshots/app-windows.png)
+
 Run the app
 ------------
 Install prerequisites:
