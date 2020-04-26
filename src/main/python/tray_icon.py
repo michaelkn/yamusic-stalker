@@ -2,7 +2,7 @@ import sys
 from PyQt5.QtWidgets import QSystemTrayIcon, QMenu
 
 class TrayIcon(QSystemTrayIcon):
-    def __init__(self, default_icon, _new_song_icon, parent=None):
+    def __init__(self, default_icon, new_song_icon, parent=None):
         super().__init__(default_icon, parent)
 
         menu = QMenu(parent)
@@ -11,7 +11,7 @@ class TrayIcon(QSystemTrayIcon):
         self.setContextMenu(menu)
 
         self._default_icon = default_icon
-        self._new_song_icon = _new_song_icon
+        self._new_song_icon = new_song_icon
 
     def set_default_icon(self):
         if self._default_icon is not None:

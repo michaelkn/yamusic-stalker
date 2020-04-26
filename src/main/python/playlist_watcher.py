@@ -1,8 +1,8 @@
 from PyQt5.QtWidgets import QLineEdit, QSpinBox, QDateTimeEdit, QPushButton, QTableView, \
-    QMainWindow, QSystemTrayIcon
+    QMainWindow, QSystemTrayIcon, QAbstractItemView, QToolButton
 from PyQt5 import uic
-from PyQt5.QtGui import QIcon, QStandardItemModel, QStandardItem
-from PyQt5.QtCore import QSettings, QTimer, Qt, QDateTime
+from PyQt5.QtGui import QIcon, QStandardItemModel, QStandardItem, QDesktopServices
+from PyQt5.QtCore import QSettings, QTimer, Qt, QDateTime, QUrl
 from yandex_music.client import Client, Playlist
 from tray_icon import TrayIcon
 
@@ -20,7 +20,7 @@ class PlaylistWatcher(QMainWindow):
         self._tracks_count_edit = self.findChild(QSpinBox, 'tracksCountEdit')
         self._watch_button = self.findChild(QPushButton, 'watchButton')
         self._playlist_view = self.findChild(QTableView, 'playlistView')
-
+        
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._update_playlist)
 
@@ -32,6 +32,7 @@ class PlaylistWatcher(QMainWindow):
         self._playlist_view_model.setColumnCount(2)
         self._playlist_view_model.setHeaderData(0, Qt.Horizontal, 'Artist')
         self._playlist_view_model.setHeaderData(1, Qt.Horizontal, 'Song')
+        self._playlist_view.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._playlist_view.setModel(self._playlist_view_model)
         horizontal_header = self._playlist_view.horizontalHeader()
         horizontal_header.setStretchLastSection(True)
@@ -39,6 +40,8 @@ class PlaylistWatcher(QMainWindow):
         self._watch_button.clicked.connect(self._toggle_watch)
         self._playlist_url_edit.editingFinished.connect(self._save_url)
         self._update_interval_edit.valueChanged[int].connect(self._save_update_period)
+        open_playlist_button = self.findChild(QToolButton, 'openPlaylistButton')
+        open_playlist_button.clicked.connect(self._open_playlist_url)
 
         self._tray_icon = TrayIcon(QIcon(app_context.get_resource('tree.ico')), \
             QIcon(app_context.get_resource('squirrel.ico')), self)
@@ -155,6 +158,10 @@ class PlaylistWatcher(QMainWindow):
         self._last_modified_edit.setDateTime(self._last_modified_edit.minimumDateTime())
         self._playlist_view_model.setRowCount(0)
         self._tray_icon.set_default_icon()
+
+    def _open_playlist_url(self):
+        url = self._playlist_url_edit.text()
+        QDesktopServices.openUrl(QUrl(url, QUrl.TolerantMode))
 
     def closeEvent(self, event):
         event.ignore()
