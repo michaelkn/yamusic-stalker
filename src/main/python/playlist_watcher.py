@@ -1,10 +1,13 @@
 from PyQt5.QtWidgets import QLineEdit, QSpinBox, QDateTimeEdit, QPushButton, QTableView, \
     QMainWindow, QSystemTrayIcon, QAbstractItemView, QToolButton
 from PyQt5 import uic
-from PyQt5.QtGui import QIcon, QStandardItemModel, QStandardItem, QDesktopServices
+from PyQt5.QtGui import QIcon, QDesktopServices
 from PyQt5.QtCore import QSettings, QTimer, Qt, QDateTime, QUrl
+from PyQt5.QtSql import QSqlRelation, QSqlTableModel
 from yandex_music.client import Client, Playlist
 from tray_icon import TrayIcon
+from song_database import SongDatabase
+from playlist_view_model import PlaylistViewModel
 
 SETTINGS_URL = 'settings/url'
 SETTINGS_UPDATE_PERIOD = 'settings/update_period'
@@ -20,7 +23,7 @@ class PlaylistWatcher(QMainWindow):
         self._tracks_count_edit = self.findChild(QSpinBox, 'tracksCountEdit')
         self._watch_button = self.findChild(QPushButton, 'watchButton')
         self._playlist_view = self.findChild(QTableView, 'playlistView')
-        
+
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._update_playlist)
 
@@ -28,14 +31,28 @@ class PlaylistWatcher(QMainWindow):
         self._playlist_url_edit.setText(self._settings.value(SETTINGS_URL, ''))
         self._update_interval_edit.setValue(self._settings.value(SETTINGS_UPDATE_PERIOD, 5, type=int))
 
-        self._playlist_view_model = QStandardItemModel(self)
-        self._playlist_view_model.setColumnCount(2)
-        self._playlist_view_model.setHeaderData(0, Qt.Horizontal, 'Artist')
-        self._playlist_view_model.setHeaderData(1, Qt.Horizontal, 'Song')
+        self._song_db = SongDatabase('songs.sqlite')
+        self._playlist_model = PlaylistViewModel(self)
+        self._playlist_model.setTable('playlist')
+        self._playlist_model.setRelation(3, QSqlRelation('songs', 'track_id', 'artist'))
+        self._playlist_model.setRelation(4, QSqlRelation('songs', 'track_id', 'title'))
+        self._playlist_model.setSort(1, Qt.AscendingOrder)
+        self._playlist_model.setHeaderData(3, Qt.Horizontal, 'Artist')
+        self._playlist_model.setHeaderData(4, Qt.Horizontal, 'Title')
+        self._playlist_model.setEditStrategy(QSqlTableModel.OnFieldChange)
+        self._playlist_model.select()
+        self._tracks_count_edit.setValue(self._playlist_model.rowCount())
+
+        self._playlist_view.setModel(self._playlist_model)
         self._playlist_view.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self._playlist_view.setModel(self._playlist_view_model)
+        self._playlist_view.setSelectionMode(QAbstractItemView.NoSelection)
+        self._playlist_view.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._playlist_view.setColumnHidden(0, True)
+        self._playlist_view.setColumnHidden(1, True)
+        self._playlist_view.setColumnHidden(2, True)
         horizontal_header = self._playlist_view.horizontalHeader()
         horizontal_header.setStretchLastSection(True)
+        self._playlist_view.clicked.connect(self._on_song_clicked)
 
         self._watch_button.clicked.connect(self._toggle_watch)
         self._playlist_url_edit.editingFinished.connect(self._save_url)
@@ -80,57 +97,65 @@ class PlaylistWatcher(QMainWindow):
             self._tracks_count_edit.setDisabled(False)
 
     def _update_playlist(self):
-        result = self._yandex_music_client.request.get(self._playlist_url)
-
-        pls = Playlist.de_json(result, self._yandex_music_client)
-        if pls is None:
+        playlist_json = self._yandex_music_client.request.get(self._playlist_url)
+        playlist = Playlist.de_json(playlist_json, self._yandex_music_client)
+        if playlist is None:
             self._clear_playlist()
             return
 
-        last_modified = QDateTime.fromString(pls.modified, Qt.ISODate).toLocalTime()
+        last_modified = QDateTime.fromString(playlist.modified, Qt.ISODate).toLocalTime()
         if last_modified == self._last_modified_edit.dateTime():
             return
         self._last_modified_edit.setDateTime(last_modified)
 
-        tracks_count = len(pls.tracks)
-        diff = tracks_count - self._tracks_count_edit.value()
-        self._tracks_count_edit.setValue(tracks_count)
-        self._playlist_view_model.setRowCount(tracks_count)
+        old_position_by_track = self._song_db.get_playlist()
+        new_position_by_track = {playlist.tracks[i].id: i for i in range(len(playlist.tracks))}
 
-        if tracks_count == 0:
-            return
+        old_tracks = set(old_position_by_track.keys())
+        new_tracks = set(new_position_by_track.keys())
+        common_tracks = new_tracks.intersection(old_tracks)
+        added_tracks = new_tracks - common_tracks
+        removed_tracks = old_tracks - common_tracks
+        changed_tracks = list()
+        for track_id in common_tracks:
+            if old_position_by_track[track_id] != new_position_by_track[track_id]:
+                changed_tracks.append((track_id, new_position_by_track[track_id]))
 
-        start_index = 0
-        if diff > 0:
-            start_index = tracks_count - diff
+        if len(removed_tracks) > 0:
+            self._song_db.remove_tracks(removed_tracks)
 
-        tracks = []
-        if pls.tracks[0].track is None:
-            track_ids = []
-            for track in pls.tracks[start_index:]:
-                track_ids.append('{0}:{1}'.format(track.id, track.album_id))
-            tracks = self._yandex_music_client.tracks(track_ids)
-        else:
-            for track in pls.tracks[start_index:]:
-                tracks.append(track.track)
+        if len(changed_tracks) > 0:
+            self._song_db.update_tracks_position(changed_tracks)
 
-        row = start_index
-        for track in tracks:
-            artist_item = QStandardItem(track.artists[0].name)
-            song_item = QStandardItem(track.title)
-            self._playlist_view_model.setItem(row, 0, artist_item)
-            self._playlist_view_model.setItem(row, 1, song_item)
-            row += 1
-
-        if  0 < diff < tracks_count:
-            track = tracks[diff-1]
-            songs = []
-            for track in tracks:
-                songs.append('{0} - {1}'.format(track.artists[0].name, track.title))
-            self._tray_icon.showMessage("Аааааааааааа!", \
-                "Добавились новые песенки: {0}, иди слушай скорей!".format(', '.join(songs)), \
-                QIcon(self._tray_icon_message_icon), 30000)
+        if len(added_tracks) > 0:
+            positions = list()
+            for track_id in added_tracks:
+                position = new_position_by_track[track_id]
+                positions.append(position)
+                if not self._song_db.has_song(track_id):
+                    self._add_track(playlist.tracks[position])
+            self._song_db.add_tracks(list(added_tracks), positions)
+            songs = self._song_db.get_songs(added_tracks)
+            self._tray_icon.showMessage('Аааааааааааа!',
+                                        ('Добавились новые '
+                                         'песенки: {0}, иди слушай скорей!')
+                                        .format(', '.join(songs)),
+                                        QIcon(self._tray_icon_message_icon), 15000)
             self._tray_icon.set_new_song_icon()
+
+        self._playlist_model.select()
+        self._tracks_count_edit.setValue(self._playlist_model.rowCount())
+
+    def _add_track(self, track):
+        track_info = None
+        if track.track is None:
+            full_tracks = self._yandex_music_client.tracks(track.track_id)
+            if len(full_tracks) > 0:
+                track_info = full_tracks[0]
+        else:
+            track_info = track.track
+        if track_info is not None:
+            self._song_db.add_song(track.id, track_info.albums[0].id, track_info.title, track_info.artists)
 
     def _save_url(self):
         self._settings.setValue(SETTINGS_URL, self._playlist_url_edit.text())
@@ -156,7 +181,6 @@ class PlaylistWatcher(QMainWindow):
     def _clear_playlist(self):
         self._tracks_count_edit.setValue(0)
         self._last_modified_edit.setDateTime(self._last_modified_edit.minimumDateTime())
-        self._playlist_view_model.setRowCount(0)
         self._tray_icon.set_default_icon()
 
     def _open_playlist_url(self):
@@ -166,3 +190,6 @@ class PlaylistWatcher(QMainWindow):
     def closeEvent(self, event):
         event.ignore()
         self.hide()
+
+    def _on_song_clicked(self, index):
+        self._playlist_model.reset_is_new_flag(index)
