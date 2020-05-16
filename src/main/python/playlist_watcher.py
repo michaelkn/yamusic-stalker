@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import QLineEdit, QSpinBox, QDateTimeEdit, QPushButton, QTableView, \
-    QMainWindow, QSystemTrayIcon, QAbstractItemView, QToolButton
+    QMainWindow, QSystemTrayIcon, QAbstractItemView, QToolButton, QHeaderView
 from PyQt5 import uic
 from PyQt5.QtGui import QIcon, QDesktopServices
 from PyQt5.QtCore import QSettings, QTimer, Qt, QDateTime, QUrl
@@ -39,6 +39,7 @@ class PlaylistWatcher(QMainWindow):
         self._playlist_model.setSort(1, Qt.AscendingOrder)
         self._playlist_model.setHeaderData(3, Qt.Horizontal, 'Artist')
         self._playlist_model.setHeaderData(4, Qt.Horizontal, 'Title')
+        self._playlist_model.setHeaderData(5, Qt.Horizontal, 'Timestamp')
         self._playlist_model.setEditStrategy(QSqlTableModel.OnFieldChange)
         self._playlist_model.select()
         self._tracks_count_edit.setValue(self._playlist_model.rowCount())
@@ -51,7 +52,9 @@ class PlaylistWatcher(QMainWindow):
         self._playlist_view.setColumnHidden(1, True)
         self._playlist_view.setColumnHidden(2, True)
         horizontal_header = self._playlist_view.horizontalHeader()
-        horizontal_header.setStretchLastSection(True)
+        horizontal_header.setSectionResizeMode(3, QHeaderView.Stretch)
+        horizontal_header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        horizontal_header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
         self._playlist_view.clicked.connect(self._on_song_clicked)
 
         self._watch_button.clicked.connect(self._toggle_watch)
@@ -129,12 +132,19 @@ class PlaylistWatcher(QMainWindow):
 
         if len(added_tracks) > 0:
             positions = list()
+            timestamps = list()
             for track_id in added_tracks:
                 position = new_position_by_track[track_id]
                 positions.append(position)
+                track = playlist.tracks[position]
+                timestamp = QDateTime.fromString(track.timestamp, Qt.ISODate).toLocalTime()
+                timestamps.append(timestamp.toString('yyyy.MM.dd hh:mm:ss'))
                 if not self._song_db.has_song(track_id):
-                    self._add_track(playlist.tracks[position])
-            self._song_db.add_tracks(list(added_tracks), positions)
+                    self._add_track(track)
+            is_new = 0 if len(old_tracks) == 0 else 1
+            self._song_db.add_tracks(list(added_tracks), positions, is_new, timestamps)
+
+        if len(added_tracks) > 0 and len(old_tracks) > 0:
             songs = self._song_db.get_songs(added_tracks)
             self._tray_icon.showMessage('Аааааааааааа!',
                                         ('Добавились новые '

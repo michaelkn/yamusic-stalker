@@ -1,6 +1,8 @@
 from typing import List, Dict
 from PyQt5.QtSql import QSqlDatabase, QSqlQuery
 
+DB_USER_VERSION = 1
+
 class SongDatabase():
     def __init__(self, db_path):
         db_ = QSqlDatabase.addDatabase('QSQLITE')
@@ -9,18 +11,46 @@ class SongDatabase():
             print(db_.lastError())
             return
 
-        db_.exec(('CREATE TABLE IF NOT EXISTS songs '
-                  '(track_id INTEGER NOT NULL UNIQUE, '
-                  'album_id INTEGER NOT NULL, '
-                  'title TEXT, '
-                  'artist TEXT, '
-                  'PRIMARY KEY (track_id));'))
-        db_.exec(('CREATE TABLE IF NOT EXISTS playlist '
-                  '(id INTEGER PRIMARY KEY AUTOINCREMENT UNIQUE, '
-                  'position INTEGER NOT NULL, '
-                  'is_new INTEGER NOT NULL, '
-                  'title INTEGER NOT NULL, '
-                  'artist INTEGER NOT NULL);'))
+        tables = db_.tables()
+        if len(tables) == 0:
+            self._create_tables()
+        elif not self._check_and_update_version():
+            db_.close()
+
+    def _create_tables(self) -> None:
+        query = QSqlQuery()
+        query.exec(('CREATE TABLE IF NOT EXISTS songs '
+                    '(track_id INTEGER NOT NULL UNIQUE, '
+                    'album_id INTEGER NOT NULL, '
+                    'title TEXT, '
+                    'artist TEXT, '
+                    'PRIMARY KEY (track_id));'))
+        query.exec(('CREATE TABLE IF NOT EXISTS playlist '
+                    '(id INTEGER PRIMARY KEY AUTOINCREMENT UNIQUE, '
+                    'position INTEGER NOT NULL, '
+                    'is_new INTEGER NOT NULL, '
+                    'title INTEGER NOT NULL, '
+                    'artist INTEGER NOT NULL, '
+                    'timestamp TEXT);'))
+        query.exec('PRAGMA user_version = {0}'.format(DB_USER_VERSION))
+
+    def _check_and_update_version(self) -> bool:
+        query = QSqlQuery()
+        query.exec('PRAGMA user_version')
+        if not query.next():
+            return False
+
+        version = query.value(0)
+        if version == DB_USER_VERSION:
+            return True
+        if version > DB_USER_VERSION:
+            return False
+        if version == 0:
+            query.exec('DELETE FROM playlist')
+            query.exec('ALTER TABLE playlist ADD COLUMN timestamp TEXT')
+
+        query.exec('PRAGMA user_version = {0}'.format(DB_USER_VERSION))
+        return True
 
     def has_song(self, track_id) -> bool:
         query = QSqlQuery()
@@ -61,14 +91,15 @@ class SongDatabase():
             songs[query.value(0)] = query.value(1)
         return songs
 
-    def add_tracks(self, track_ids, positions):
+    def add_tracks(self, track_ids, positions, is_new, timestamps):
         query = QSqlQuery()
-        query.prepare(('INSERT INTO playlist (position, is_new, title, artist)'
-                       ' VALUES (?, ?, ?, ?)'))
+        query.prepare(('INSERT INTO playlist (position, is_new, title, artist, timestamp)'
+                       ' VALUES (?, ?, ?, ?, ?)'))
         query.addBindValue(positions)
-        query.addBindValue([1]*len(positions))
+        query.addBindValue([is_new]*len(positions))
         query.addBindValue(track_ids)
         query.addBindValue(track_ids)
+        query.addBindValue(timestamps)
         query.execBatch()
 
     def remove_tracks(self, track_ids) -> None:

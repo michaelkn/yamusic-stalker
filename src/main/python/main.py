@@ -1,4 +1,6 @@
 import sys
+#import logging
+#from logging import TimedRotatingFileHandler
 from fbs_runtime.application_context.PyQt5 import ApplicationContext
 from PyQt5.QtCore import QCoreApplication
 from playlist_watcher import PlaylistWatcher
