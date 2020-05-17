@@ -1,14 +1,16 @@
 from typing import List, Dict
 from PyQt5.QtSql import QSqlDatabase, QSqlQuery
+import log
 
 DB_USER_VERSION = 1
 
 class SongDatabase():
     def __init__(self, db_path):
+        self._logger = log.get_logger(__name__)
         db_ = QSqlDatabase.addDatabase('QSQLITE')
         db_.setDatabaseName(db_path)
         if not db_.open():
-            print(db_.lastError())
+            self._logger.error('Cannot open database: %s', db_.lastError())
             return
 
         tables = db_.tables()
@@ -38,12 +40,15 @@ class SongDatabase():
         query = QSqlQuery()
         query.exec('PRAGMA user_version')
         if not query.next():
+            self._logger.error('Cannot get user_version: %s', query.lastError())
             return False
 
         version = query.value(0)
         if version == DB_USER_VERSION:
             return True
         if version > DB_USER_VERSION:
+            self._logger.error('DB version %d is greater than app verison %d', \
+                version, DB_USER_VERSION)
             return False
         if version == 0:
             query.exec('DELETE FROM playlist')
@@ -53,9 +58,7 @@ class SongDatabase():
         return True
 
     def has_song(self, track_id) -> bool:
-        query = QSqlQuery()
-        if not query.exec('SELECT 1 FROM songs WHERE track_id = {0}'.format(track_id)):
-            return None
+        query = QSqlQuery('SELECT 1 FROM songs WHERE track_id = {0}'.format(track_id))
         return query.next()
 
     def add_song(self, track_id, album_id, title, artist_info) -> None:
@@ -70,7 +73,8 @@ class SongDatabase():
         query.bindValue(':album_id', album_id)
         query.bindValue(':title', title)
         query.bindValue(':artist', artist)
-        query.exec()
+        if not query.exec():
+            self._logger.warning('Unable to add song: %s', query.lastError())
 
     def get_songs(self, track_ids) -> List[str]:
         songs = list()
@@ -91,7 +95,7 @@ class SongDatabase():
             songs[query.value(0)] = query.value(1)
         return songs
 
-    def add_tracks(self, track_ids, positions, is_new, timestamps):
+    def add_tracks(self, track_ids, positions, is_new, timestamps) -> None:
         query = QSqlQuery()
         query.prepare(('INSERT INTO playlist (position, is_new, title, artist, timestamp)'
                        ' VALUES (?, ?, ?, ?, ?)'))
@@ -100,7 +104,8 @@ class SongDatabase():
         query.addBindValue(track_ids)
         query.addBindValue(track_ids)
         query.addBindValue(timestamps)
-        query.execBatch()
+        if not query.execBatch():
+            self._logger.warning('Insert tracks query has failed: %s', query.lastError())
 
     def remove_tracks(self, track_ids) -> None:
         query = QSqlQuery()

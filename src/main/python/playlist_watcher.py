@@ -17,6 +17,8 @@ class PlaylistWatcher(QMainWindow):
         super().__init__()
         uic.loadUi(app_context.get_resource('mainwindow.ui'), self)
 
+        self._logger = log.get_logger(__name__)
+
         self._playlist_url_edit = self.findChild(QLineEdit, 'playlistUrlEdit')
         self._update_interval_edit = self.findChild(QSpinBox, 'updateIntervalEdit')
         self._last_modified_edit = self.findChild(QDateTimeEdit, 'lastModifiedEdit')
@@ -116,6 +118,10 @@ class PlaylistWatcher(QMainWindow):
 
         old_tracks = set(old_position_by_track.keys())
         new_tracks = set(new_position_by_track.keys())
+
+        self._logger.info('Old tracks size: %d, new tracks size: %d', \
+            len(old_tracks), len(new_tracks))
+
         common_tracks = new_tracks.intersection(old_tracks)
         added_tracks = new_tracks - common_tracks
         removed_tracks = old_tracks - common_tracks
@@ -123,6 +129,9 @@ class PlaylistWatcher(QMainWindow):
         for track_id in common_tracks:
             if old_position_by_track[track_id] != new_position_by_track[track_id]:
                 changed_tracks.append((track_id, new_position_by_track[track_id]))
+
+        self._logger.info('Removed tracks: %d, changed tracks: %d, added tracks: %d', \
+            len(removed_tracks), len(changed_tracks), len(added_tracks))
 
         if len(removed_tracks) > 0:
             self._song_db.remove_tracks(removed_tracks)
@@ -165,7 +174,8 @@ class PlaylistWatcher(QMainWindow):
         else:
             track_info = track.track
         if track_info is not None:
-            self._song_db.add_song(track.id, track_info.albums[0].id, track_info.title, track_info.artists)
+            self._song_db.add_song(track.id, track_info.albums[0].id, track_info.title, \
+                track_info.artists)
 
     def _save_url(self):
         self._settings.setValue(SETTINGS_URL, self._playlist_url_edit.text())
