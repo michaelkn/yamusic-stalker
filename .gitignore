@@ -128,3 +128,6 @@ dmypy.json
 .pyre/
 
 *.ini
+
+.vscode/
+*.sqlite

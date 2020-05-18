@@ -1,4 +1,0 @@
-{
-    "python.envFile": "${workspaceFolder}\\.env",
-    "env": {"PYTHONPATH": "${workspaceRoot}\\src\\main\\python"}
-}
