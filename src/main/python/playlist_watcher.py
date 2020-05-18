@@ -8,6 +8,7 @@ from yandex_music.client import Client, Playlist
 from tray_icon import TrayIcon
 from song_database import SongDatabase
 from playlist_view_model import PlaylistViewModel
+import log
 
 SETTINGS_URL = 'settings/url'
 SETTINGS_UPDATE_PERIOD = 'settings/update_period'
